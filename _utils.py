@@ -17,7 +17,8 @@ __all__ = ["is_normalize", "generate_random_targets", "train_transform", "test_t
 def is_normalize(tensor: Tensor):
     b, *d = tensor.shape
     tensor = tensor.view(b, -1)
-    return torch.all(tensor.norm(dim=1, p=2) == 1.0)
+    norms = tensor.norm(dim=1, p=2)
+    return torch.allclose(norms, torch.ones_like(norms))
 
 
 def generate_random_targets(n: int, z: int):
@@ -57,6 +58,7 @@ class NatCIFAR10(CIFAR10):
             self._nat = np.empty(shape=(len(self.data), z_dims))
 
     def update_nat(self, idx, target):
+        target = target.cpu().numpy()
         for i, t in zip(idx, target):
             self._nat[i] = t
 
@@ -74,8 +76,40 @@ def backbone_parameters(network):
     """
     new_named_parameter_dict = {k: v for k, v in network.named_parameters() if k != "fc"}
 
-    for gen in new_named_parameter_dict:
+    for gen in new_named_parameter_dict.values():
         yield gen
+
+
+def classifier_parameters(network):
+    reach_fc = False
+    for k, v in network.named_parameters():
+        if "fc" in k:
+            reach_fc = True
+        if reach_fc:
+            yield v
+
+
+def _pairwise_distances(x, y=None):
+    '''
+    Input: x is a Nxd matrix
+           y is an optional Mxd matirx
+    Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
+            if y is not given then use 'y=x'.
+    i.e. dist[i,j] = ||x[i,:]-y[j,:]||^2
+    '''
+    x_norm = (x ** 2).sum(1).view(-1, 1)
+    if y is not None:
+        y_t = torch.transpose(y, 0, 1)
+        y_norm = (y ** 2).sum(1).view(1, -1)
+    else:
+        y_t = torch.transpose(x, 0, 1)
+        y_norm = x_norm.view(1, -1)
+
+    dist = x_norm + y_norm - 2.0 * torch.mm(x, y_t)
+    # Ensure diagonal is zero if x=y
+    # if y is None:
+    #     dist = dist - torch.diag(dist.diag)
+    return torch.clamp(dist, 0.0, np.inf)
 
 
 def calc_optimal_target_permutation(feats: np.ndarray, targets: np.ndarray) -> np.ndarray:
@@ -86,15 +120,10 @@ def calc_optimal_target_permutation(feats: np.ndarray, targets: np.ndarray) -> n
     :return: the targets reassigned such that the SSE between features and targets is minimised for the batch.
     """
     # Compute cost matrix
-    cost_matrix = np.zeros([feats.shape[0], targets.shape[0]])
-    # calc SSE between all features and targets
-    for i in range(feats.shape[0]):
-        cost_matrix[:, i] = np.sum(np.square(feats - targets[i, :]), axis=1)
-
-    _, col_ind = linear_sum_assignment(cost_matrix)
+    cost_matrix = _pairwise_distances(feats, targets)
+    _, col_ind = linear_sum_assignment(cost_matrix.detach().cpu())
     # Permute the targets based on hungarian algorithm optimisation
-    targets[range(feats.shape[0])] = targets[col_ind]
-    return targets
+    return targets[col_ind]
 
 
 class FeatureExtractor(nn.Module):
