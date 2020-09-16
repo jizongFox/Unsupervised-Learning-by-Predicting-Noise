@@ -14,5 +14,5 @@ train_loader = DataLoader(train_set, num_workers=2, batch_size=256,
 test_loader = DataLoader(test_set, batch_size=100, num_workers=2)
 
 trainer = Trainer(network, iter(train_loader), iter(train_loader), test_loader, max_epoch_pretrain=100,
-                  max_epoch_finetune=100, num_batches=512, save_dir="tmp", device="cuda")
+                  max_epoch_finetune=100, num_batches=256, save_dir="tmp3", device="cuda")
 trainer.start_training()

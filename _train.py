@@ -140,9 +140,9 @@ class Trainer(_Trainer):
         self._finetune_storage = Storage()
 
     def init_pretrain(self):
-        self._optimizer = torch.optim.Adam(backbone_parameters(self._model), lr=1e-5, weight_decay=1e-4)
+        self._optimizer = torch.optim.Adam(backbone_parameters(self._model), lr=1e-7, weight_decay=1e-4)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self._optimizer, T_max=self._max_epoch_pretrain - 10, eta_min=1e-5
+            self._optimizer, T_max=self._max_epoch_pretrain - 10, eta_min=1e-8
         )
         self._scheduler = GradualWarmupScheduler(self._optimizer, 3000, 10, after_scheduler=scheduler)
 
