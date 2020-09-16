@@ -86,9 +86,9 @@ def show_result(num_epoch, show=False, save=False, path='result.png', isFix=Fals
 
     G.eval()
     if isFix:
-        test_images = G(fixed_z_)
+        test_images = G(fixed_z_.to("cuda"))
     else:
-        test_images = G(z_)
+        test_images = G(z_.to("cuda"))
     G.train()
 
     size_figure_grid = 5
@@ -190,10 +190,9 @@ for epoch in range(train_epoch):
     D_losses = []
     G_losses = []
     epoch_start_time = time.time()
-    for x_, _ in tqdm(train_loader):
+    for i, (x_, _) in tqdm(enumerate(train_loader)):
         # train discriminator D
         D.zero_grad()
-
         mini_batch = x_.size()[0]
 
         y_real_ = torch.ones(mini_batch)

@@ -132,16 +132,25 @@ class GANEpocher(_Epocher):
             img = img.to(self._device)
             z_ = self._noise_call(b).to(self._device)
             fake_img = self._model(z_)
-            all_imgs = torch.cat([img, fake_img.detach()], dim=0)
-            predict = self._discriminator(all_imgs).squeeze()
             true_target_ = torch.zeros(b, device=self.device).fill_(self.y_real_)
             fake_target_ = torch.zeros(b, device=self.device).fill_(self.y_fake_)
-            disc_loss = self._bce_criterion(predict, torch.cat((true_target_, fake_target_), dim=0))
+            true_predict = self._discriminator(img).squeeze()
+            D_real_loss = self._bce_criterion(true_predict, true_target_)
+            fake_predict = self._discriminator(fake_img.detach()).squeeze()
+            D_fake_loss = self._bce_criterion(fake_predict, fake_target_)
+            disc_loss = D_fake_loss + D_real_loss
+            # all_imgs = torch.cat([img, fake_img.detach()], dim=0)
+            # predict = self._discriminator(all_imgs).squeeze()
+            # true_target_ = torch.zeros(b, device=self.device).fill_(self.y_real_)
+            # fake_target_ = torch.zeros(b, device=self.device).fill_(self.y_fake_)
+            # # todo: check if this is the most important change
+            # disc_loss = self._bce_criterion(predict, torch.cat((true_target_, fake_target_), dim=0))
             disc_loss.backward()
             self._disc_optimizer.step()
             self.meters["discriminator_loss"].add(disc_loss.item())
             # train generator
             self._model_optimizer.zero_grad()
+            # todo: check if this is the most important change
             z_ = self._noise_call(b).to(self._device)
             fake_img = self._model(z_)
             fake_predict = self._discriminator(fake_img).squeeze()
@@ -168,13 +177,15 @@ class GANEpocher(_Epocher):
         z_ = self._noise_call(self._fixed_noise.shape[0]) if not fixed_noise else self._fixed_noise
         self._model.eval()
         with torch.no_grad():
-            images = self._model(z_.to(self._device))
+            images = self._model(z_)
 
-        grid_image = make_grid([*images], padding=4, nrow=8, normalize=True).cpu().numpy().transpose(1, 2, 0)
+        grid_image = make_grid([*images], padding=4, nrow=8).cpu().numpy().transpose(1, 2, 0)
+        grid_image = (grid_image + 1.0) / 2.0
         folder = Path(self.trainer._save_dir, folder_name)
         folder.mkdir(exist_ok=True)
         file_name = f"Epoch_{self._cur_epoch:03d}.png"
         Image.fromarray((grid_image * 255).astype(np.uint8)).save(str(folder / file_name))
+        return grid_image
 
 
 class GANTrainer(_Trainer):
@@ -191,7 +202,7 @@ class GANTrainer(_Trainer):
         self._train_iter = train_iter
 
     def init(self):
-        self._noise_generator = lambda b: torch.randn((b, 100)).view(-1, 100, 1, 1)
+        self._noise_generator = lambda b: torch.randn((b, 100), device=self._device).view(-1, 100, 1, 1)
         self._fixed_noise = self._noise_generator(64)
 
     def _run_epoch(self, *args, **kwargs) -> EpochResultDict:
@@ -200,7 +211,8 @@ class GANTrainer(_Trainer):
         epocher.init(self._discriminator, self._model_optimizer, self._disc_optimizer, self._train_iter,
                      fixed_noise=self._fixed_noise, noise_generator=self._noise_generator)
         result_dict = epocher.run()
-        epocher.image_writer(fixed_noise=True)
+        grid_image = epocher.image_writer(fixed_noise=True)
+        self._writer.add_image("visual", grid_image.transpose(2, 0, 1), global_step=self._cur_epoch)
         return result_dict
 
     def _start_training(self, *args, **kwargs):
@@ -215,6 +227,7 @@ class GANTrainer(_Trainer):
             # save_checkpoint
             # self.save(cur_score)
             # save storage result on csv file.
+            self._save_to("last.pth")
             self._storage.to_csv(self._save_dir)
 
 
@@ -239,7 +252,7 @@ if __name__ == '__main__':
     )
     G = generator(128)
     D = discriminator(128)
-    trainer = GANTrainer(G, D, iter(train_loader), save_dir="gan_version1", max_epoch=30, num_batches=len(train_loader),
+    trainer = GANTrainer(G, D, iter(train_loader), save_dir="gan_version2", max_epoch=30, num_batches=2,
                          device="cuda", configuration=None)
     trainer.init()
     trainer.start_training()

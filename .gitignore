@@ -6,3 +6,4 @@ data/
 runs
 example.py
 venv/
+MNIST_DCGAN_results/
