@@ -134,17 +134,16 @@ class GANEpocher(_Epocher):
             fake_img = self._model(z_)
             true_target_ = torch.zeros(b, device=self.device).fill_(self.y_real_)
             fake_target_ = torch.zeros(b, device=self.device).fill_(self.y_fake_)
-            true_predict = self._discriminator(img).squeeze()
-            D_real_loss = self._bce_criterion(true_predict, true_target_)
-            fake_predict = self._discriminator(fake_img.detach()).squeeze()
-            D_fake_loss = self._bce_criterion(fake_predict, fake_target_)
-            disc_loss = D_fake_loss + D_real_loss
-            # all_imgs = torch.cat([img, fake_img.detach()], dim=0)
-            # predict = self._discriminator(all_imgs).squeeze()
-            # true_target_ = torch.zeros(b, device=self.device).fill_(self.y_real_)
-            # fake_target_ = torch.zeros(b, device=self.device).fill_(self.y_fake_)
+            # true_predict = self._discriminator(img).squeeze()
+            # D_real_loss = self._bce_criterion(true_predict, true_target_)
+            # fake_predict = self._discriminator(fake_img.detach()).squeeze()
+            # D_fake_loss = self._bce_criterion(fake_predict, fake_target_)
+            # disc_loss = D_fake_loss + D_real_loss
+
+            all_imgs = torch.cat([img, fake_img.detach()], dim=0)
+            predict = self._discriminator(all_imgs).squeeze()
             # # todo: check if this is the most important change
-            # disc_loss = self._bce_criterion(predict, torch.cat((true_target_, fake_target_), dim=0))
+            disc_loss = self._bce_criterion(predict, torch.cat((true_target_, fake_target_), dim=0))
             disc_loss.backward()
             self._disc_optimizer.step()
             self.meters["discriminator_loss"].add(disc_loss.item())
@@ -252,7 +251,8 @@ if __name__ == '__main__':
     )
     G = generator(128)
     D = discriminator(128)
-    trainer = GANTrainer(G, D, iter(train_loader), save_dir="gan_version2", max_epoch=30, num_batches=2,
+    trainer = GANTrainer(G, D, iter(train_loader), save_dir="gan_version2", max_epoch=60, num_batches=20,
                          device="cuda", configuration=None)
     trainer.init()
+    # trainer.load_state_dict_from_path("runs/tmp/last.pth")
     trainer.start_training()
