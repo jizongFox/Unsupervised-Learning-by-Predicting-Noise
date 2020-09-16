@@ -142,6 +142,8 @@ class GANEpocher(_Epocher):
             self.meters["discriminator_loss"].add(disc_loss.item())
             # train generator
             self._model_optimizer.zero_grad()
+            z_ = self._noise_call(b).to(self._device)
+            fake_img = self._model(z_)
             fake_predict = self._discriminator(fake_img).squeeze()
             gen_loss = self._bce_criterion(fake_predict, true_target_)
             gen_loss.backward()
@@ -179,8 +181,7 @@ class GANTrainer(_Trainer):
     RUN_PATH = "./runs"
 
     def __init__(self, model: nn.Module, discriminator: nn.Module, train_iter: T_iter, save_dir: str = "base",
-                 max_epoch: int = 100,
-                 num_batches: int = 100, device: str = "cpu", configuration=None):
+                 max_epoch: int = 100, num_batches: int = 100, device: str = "cpu", configuration=None):
         super().__init__(model, save_dir, max_epoch, num_batches, device, configuration)
         self._discriminator = discriminator
 
@@ -220,6 +221,7 @@ class GANTrainer(_Trainer):
 if __name__ == '__main__':
     from torchvision import transforms, datasets
     from deepclustering2.dataloader.sampler import InfiniteRandomSampler
+    from torch.utils.data import DataLoader
 
     batch_size = 128
 
@@ -231,13 +233,13 @@ if __name__ == '__main__':
         transforms.Normalize(mean=(0.5,), std=(0.5,))
     ])
     train_dataset = datasets.MNIST('data', train=True, download=True, transform=transform)
-    train_loader = torch.utils.data.DataLoader(
+    train_loader = DataLoader(
         train_dataset, batch_size=batch_size,
-        sampler=InfiniteRandomSampler(train_dataset, shuffle=True)
+        sampler=InfiniteRandomSampler(train_dataset, shuffle=True), num_workers=4
     )
     G = generator(128)
     D = discriminator(128)
-    trainer = GANTrainer(G, D, iter(train_loader), save_dir="tmp", max_epoch=30, num_batches=len(train_loader),
+    trainer = GANTrainer(G, D, iter(train_loader), save_dir="gan_version1", max_epoch=30, num_batches=len(train_loader),
                          device="cuda", configuration=None)
     trainer.init()
     trainer.start_training()
