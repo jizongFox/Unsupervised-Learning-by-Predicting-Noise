@@ -8,100 +8,19 @@ import torch
 from PIL import Image
 from torch import nn, Tensor
 from torch import optim
-from torch.nn import functional as F
 from torchvision.utils import make_grid
 
 from deepclustering2.decorator import TikTok
 from deepclustering2.epoch._epocher import _Epocher
 from deepclustering2.meters2 import EpochResultDict, MeterInterface, AverageValueMeter, StorageIncomeDict
 from deepclustering2.models import Model
-from deepclustering2.tqdm import tqdm
 from deepclustering2.trainer import Trainer as _Trainer
 from deepclustering2.type import T_optim, T_iter
 
 
-# %% network definition
-
-class generator(nn.Module):
-    # initializers
-    def __init__(self, d=128):
-        super(generator, self).__init__()
-        self.deconv1 = nn.ConvTranspose2d(100, d * 8, 4, 1, 0)
-        self.deconv1_bn = nn.BatchNorm2d(d * 8)
-        self.deconv2 = nn.ConvTranspose2d(d * 8, d * 4, 4, 2, 1)
-        self.deconv2_bn = nn.BatchNorm2d(d * 4)
-        self.deconv3 = nn.ConvTranspose2d(d * 4, d * 2, 4, 2, 1)
-        self.deconv3_bn = nn.BatchNorm2d(d * 2)
-        self.deconv4 = nn.ConvTranspose2d(d * 2, d, 4, 2, 1)
-        self.deconv4_bn = nn.BatchNorm2d(d)
-        self.deconv5 = nn.ConvTranspose2d(d, 1, 4, 2, 1)
-        self.weight_init(0.0, 0.02)
-
-    # weight_init
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            self.normal_init(self._modules[m], mean, std)
-
-    # forward method
-    def forward(self, input):
-        # x = F.relu(self.deconv1(input))
-        x = F.relu(self.deconv1_bn(self.deconv1(input)))
-        x = F.relu(self.deconv2_bn(self.deconv2(x)))
-        x = F.relu(self.deconv3_bn(self.deconv3(x)))
-        x = F.relu(self.deconv4_bn(self.deconv4(x)))
-        x = F.tanh(self.deconv5(x))
-
-        return x
-
-    @staticmethod
-    def normal_init(m, mean, std):
-        if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d):
-            m.weight.data.normal_(mean, std)
-            m.bias.data.zero_()
-
-
-class discriminator(nn.Module):
-    # initializers
-    def __init__(self, d=128):
-        super(discriminator, self).__init__()
-        self.conv1 = nn.Conv2d(1, d, 4, 2, 1)
-        self.conv2 = nn.Conv2d(d, d * 2, 4, 2, 1)
-        self.conv2_bn = nn.BatchNorm2d(d * 2)
-        self.conv3 = nn.Conv2d(d * 2, d * 4, 4, 2, 1)
-        self.conv3_bn = nn.BatchNorm2d(d * 4)
-        self.conv4 = nn.Conv2d(d * 4, d * 8, 4, 2, 1)
-        self.conv4_bn = nn.BatchNorm2d(d * 8)
-        self.conv5 = nn.Conv2d(d * 8, 1, 4, 1, 0)
-        self.weight_init(0.0, 0.02)
-
-    # weight_init
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            self.normal_init(self._modules[m], mean, std)
-
-    # forward method
-    def forward(self, input):
-        x = F.leaky_relu(self.conv1(input), 0.2)
-        x = F.leaky_relu(self.conv2_bn(self.conv2(x)), 0.2)
-        x = F.leaky_relu(self.conv3_bn(self.conv3(x)), 0.2)
-        x = F.leaky_relu(self.conv4_bn(self.conv4(x)), 0.2)
-        x = torch.sigmoid(self.conv5(x))
-
-        return x
-
-    @staticmethod
-    def normal_init(m, mean, std):
-        if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d):
-            m.weight.data.normal_(mean, std)
-            m.bias.data.zero_()
-
-
-# %% epocher definition
-
 class GANEpocher(_Epocher):
     y_real_ = 1
     y_fake_ = 0
-    indicator: tqdm
 
     def init(self, discriminator: Union[Model, nn.Module], model_optimizer: T_optim, dis_optimizer: T_optim,
              train_iter: T_iter, fixed_noise=None, noise_generator=Callable[[Tensor], Tensor]):
@@ -121,11 +40,11 @@ class GANEpocher(_Epocher):
         self._model.train()
         self._discriminator.train()
         assert self._model.training and self._discriminator.training
-        datafetch_tiktok, batch_run_tiktok = TikTok(), TikTok()
+        fetch_tiktok, batch_tiktok = TikTok(), TikTok()
         report_dict = EpochResultDict()
         for i, (img, _) in zip(self._indicator, self._train_iter):
-            datafetch_tiktok.tik()
-            self.meters["data_fetch_time"].add(datafetch_tiktok.cost)
+            fetch_tiktok.tik()
+            self.meters["data_fetch_time"].add(fetch_tiktok.cost)
             b, *chw = img.shape
             # train_discriminator
             self._disc_optimizer.zero_grad()
@@ -159,9 +78,9 @@ class GANEpocher(_Epocher):
             self.meters["generator_loss"].add(gen_loss.item())
             report_dict = self.meters.tracking_status()
             self._indicator.set_postfix(report_dict)
-            datafetch_tiktok.tik()
-            batch_run_tiktok.tik()
-            self.meters["batch_time"].add(batch_run_tiktok.cost)
+            fetch_tiktok.tik()
+            batch_tiktok.tik()
+            self.meters["batch_time"].add(batch_tiktok.cost)
         return report_dict
 
     def _configure_meters(self, meters: MeterInterface) -> MeterInterface:
@@ -234,6 +153,7 @@ if __name__ == '__main__':
     from torchvision import transforms, datasets
     from deepclustering2.dataloader.sampler import InfiniteRandomSampler
     from torch.utils.data import DataLoader
+    import arch
 
     batch_size = 128
 
@@ -247,11 +167,12 @@ if __name__ == '__main__':
     train_dataset = datasets.MNIST('data', train=True, download=True, transform=transform)
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size,
-        sampler=InfiniteRandomSampler(train_dataset, shuffle=True), num_workers=4
+        sampler=InfiniteRandomSampler(train_dataset, shuffle=True),  # noqa
+        num_workers=4
     )
-    G = generator(128)
-    D = discriminator(128)
-    trainer = GANTrainer(G, D, iter(train_loader), save_dir="gan_version2", max_epoch=60, num_batches=20,
+    G = arch.OfficialGenerator(100, 64, 1)
+    D = arch.OfficialDiscriminator(1, 64)
+    trainer = GANTrainer(G, D, iter(train_loader), save_dir="mygan", max_epoch=60, num_batches=200,
                          device="cuda", configuration=None)
     trainer.init()
     # trainer.load_state_dict_from_path("runs/tmp/last.pth")

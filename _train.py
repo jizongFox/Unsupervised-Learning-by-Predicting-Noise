@@ -10,7 +10,7 @@ from deepclustering2.optim import get_lrs_from_optimizer
 from deepclustering2.schedulers.warmup_scheduler import GradualWarmupScheduler
 from deepclustering2.tqdm import tqdm
 from deepclustering2.trainer import Trainer as _Trainer
-from deepclustering2.trainer.trainer import T_optim, T_loader
+from deepclustering2.type import T_optim, T_loader
 from torch import nn
 from torch.nn.functional import normalize
 
