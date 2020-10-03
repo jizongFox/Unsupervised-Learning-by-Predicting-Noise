@@ -53,33 +53,28 @@ class GANEpocher(_Epocher):
             fake_img = self._model(z_)
             true_target_ = torch.zeros(b, device=self.device).fill_(self.y_real_)
             fake_target_ = torch.zeros(b, device=self.device).fill_(self.y_fake_)
-            # true_predict = self._discriminator(img).squeeze()
-            # D_real_loss = self._bce_criterion(true_predict, true_target_)
-            # fake_predict = self._discriminator(fake_img.detach()).squeeze()
-            # D_fake_loss = self._bce_criterion(fake_predict, fake_target_)
-            # disc_loss = D_fake_loss + D_real_loss
-
-            all_imgs = torch.cat([img, fake_img.detach()], dim=0)
-            predict = self._discriminator(all_imgs).squeeze()
-            # # todo: check if this is the most important change
-            disc_loss = self._bce_criterion(predict, torch.cat((true_target_, fake_target_), dim=0))
+            true_predict = self._discriminator(img).squeeze()
+            D_real_loss = self._bce_criterion(true_predict, true_target_)
+            fake_predict = self._discriminator(fake_img.detach()).squeeze()
+            D_fake_loss = self._bce_criterion(fake_predict, fake_target_)
+            disc_loss = D_fake_loss + D_real_loss
             disc_loss.backward()
             self._disc_optimizer.step()
-            self.meters["discriminator_loss"].add(disc_loss.item())
+
             # train generator
             self._model_optimizer.zero_grad()
             # todo: check if this is the most important change
-            z_ = self._noise_call(b).to(self._device)
-            fake_img = self._model(z_)
             fake_predict = self._discriminator(fake_img).squeeze()
             gen_loss = self._bce_criterion(fake_predict, true_target_)
             gen_loss.backward()
             self._model_optimizer.step()
-            self.meters["generator_loss"].add(gen_loss.item())
+
             report_dict = self.meters.tracking_status()
             self._indicator.set_postfix(report_dict)
             fetch_tiktok.tik()
             batch_tiktok.tik()
+            self.meters["generator_loss"].add(gen_loss.item())
+            self.meters["discriminator_loss"].add(disc_loss.item())
             self.meters["batch_time"].add(batch_tiktok.cost)
         return report_dict
 
@@ -155,7 +150,7 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
     import arch
 
-    batch_size = 128
+    batch_size = 64
 
     # data_loader
     img_size = 64
@@ -170,9 +165,9 @@ if __name__ == '__main__':
         sampler=InfiniteRandomSampler(train_dataset, shuffle=True),  # noqa
         num_workers=4
     )
-    G = arch.OfficialGenerator(100, 64, 1)
+    G = arch.OfficialGenerator(100, 32, 1)
     D = arch.OfficialDiscriminator(1, 64)
-    trainer = GANTrainer(G, D, iter(train_loader), save_dir="mygan", max_epoch=60, num_batches=200,
+    trainer = GANTrainer(G, D, iter(train_loader), save_dir="mygan", max_epoch=1, num_batches=200,
                          device="cuda", configuration=None)
     trainer.init()
     # trainer.load_state_dict_from_path("runs/tmp/last.pth")

@@ -9,10 +9,12 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
 import torchvision.utils as vutils
+from tqdm import tqdm
 
 from arch import OfficialDiscriminator, OfficialGenerator
 from dataset import create_dataset
 from utils import InfiniteRandomSampler
+torch.autograd.set_detect_anomaly(True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', required=False, default="mnist", type=str,
@@ -22,7 +24,7 @@ parser.add_argument('--workers', type=int, help='number of data loading workers'
 parser.add_argument('--batchSize', type=int, default=64, help='input batch size')
 parser.add_argument('--imageSize', type=int, default=64, help='the height / width of the input image to network')
 parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
-parser.add_argument('--ngf', type=int, default=64)
+parser.add_argument('--ngf', type=int, default=32)
 parser.add_argument('--ndf', type=int, default=64)
 parser.add_argument('--niter', type=int, default=25, help='number of epochs to train for')
 parser.add_argument('--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
@@ -77,8 +79,8 @@ netD.to(device)
 criterion = nn.BCELoss()
 
 fixed_noise = torch.randn(opt.batchSize, opt.nz, 1, 1, device=device)
-real_label = 1
-fake_label = 0
+_real_label = 1
+_fake_label = 0
 
 # setup optimizer
 optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -98,32 +100,34 @@ for epoch in range(opt.niter):
         netD.zero_grad()
         real_cpu = data[0].to(device)
         batch_size = real_cpu.size(0)
-        label = torch.full((batch_size,), real_label,
+        true_label = torch.full((batch_size,), _real_label,
                            dtype=real_cpu.dtype, device=device)
 
         output = netD(real_cpu)
-        errD_real = criterion(output.squeeze(), label)
-        errD_real.backward()
+        errD_real = criterion(output.squeeze(), true_label)
+        # errD_real.backward()
         D_x = output.mean().item()
 
         # train with fake
         noise = torch.randn(batch_size, opt.nz, 1, 1, device=device)
         fake = netG(noise)
-        label.fill_(fake_label)
+        fake_label = torch.full((batch_size,), _fake_label,
+                           dtype=real_cpu.dtype, device=device)
         output = netD(fake.detach())
-        errD_fake = criterion(output.squeeze(), label)
-        errD_fake.backward()
+        errD_fake = criterion(output.squeeze(), fake_label)
+        # errD_fake.backward()
         D_G_z1 = output.mean().item()
         errD = errD_real + errD_fake
+        errD.backward()
         optimizerD.step()
 
         ############################
         # (2) Update G network: maximize log(D(G(z)))
         ###########################
         netG.zero_grad()
-        label.fill_(real_label)  # fake labels are real for generator cost
+
         output = netD(fake)
-        errG = criterion(output.squeeze(), label)
+        errG = criterion(output.squeeze(), true_label)
         errG.backward()
         D_G_z2 = output.mean().item()
         optimizerG.step()
