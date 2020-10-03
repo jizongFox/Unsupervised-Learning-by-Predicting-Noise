@@ -55,7 +55,9 @@ class GANEpocher(_Epocher):
             fake_target_ = torch.zeros(b, device=self.device).fill_(self.y_fake_)
             true_predict = self._discriminator(img).squeeze()
             D_real_loss = self._bce_criterion(true_predict, true_target_)
+            self.meters["D(x)"].add(true_predict.mean().item())
             fake_predict = self._discriminator(fake_img.detach()).squeeze()
+            self.meters["D(G(z))"].add(fake_predict.mean().item())
             D_fake_loss = self._bce_criterion(fake_predict, fake_target_)
             disc_loss = D_fake_loss + D_real_loss
             disc_loss.backward()
@@ -68,14 +70,16 @@ class GANEpocher(_Epocher):
             gen_loss = self._bce_criterion(fake_predict, true_target_)
             gen_loss.backward()
             self._model_optimizer.step()
+            self.meters["D(G(z))2"].add(fake_predict.mean().item())
 
             report_dict = self.meters.tracking_status()
             self._indicator.set_postfix(report_dict)
-            fetch_tiktok.tik()
-            batch_tiktok.tik()
+
             self.meters["generator_loss"].add(gen_loss.item())
             self.meters["discriminator_loss"].add(disc_loss.item())
             self.meters["batch_time"].add(batch_tiktok.cost)
+            batch_tiktok.tik()
+            fetch_tiktok.tik()
         return report_dict
 
     def _configure_meters(self, meters: MeterInterface) -> MeterInterface:
@@ -84,6 +88,9 @@ class GANEpocher(_Epocher):
         meters.register_meter("discriminator_loss", AverageValueMeter())
         meters.register_meter("batch_time", AverageValueMeter())
         meters.register_meter("data_fetch_time", AverageValueMeter())
+        meters.register_meter("D(x)", AverageValueMeter())
+        meters.register_meter("D(G(z))", AverageValueMeter())
+        meters.register_meter("D(G(z))2", AverageValueMeter())
         return meters
 
     def image_writer(self, fixed_noise: bool = True, folder_name="inference"):
@@ -147,7 +154,7 @@ class GANTrainer(_Trainer):
 if __name__ == '__main__':
     from torchvision import transforms, datasets
     from deepclustering2.dataloader.sampler import InfiniteRandomSampler
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, Subset #noqa
     import arch
 
     batch_size = 64
@@ -156,18 +163,20 @@ if __name__ == '__main__':
     img_size = 64
     transform = transforms.Compose([
         transforms.Resize(img_size),
+        transforms.RandomResizedCrop(size=img_size, scale=(0.7, 1.2)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=(0.5,), std=(0.5,))
+        transforms.Normalize(mean=(0.5,0.5, 0.5), std=(0.5,0.5, 0.5))
     ])
-    train_dataset = datasets.MNIST('data', train=True, download=True, transform=transform)
+    train_dataset = datasets.CIFAR10('data', train=True, download=True, transform=transform)
+    # train_dataset = Subset(train_dataset, np.where(train_dataset.targets == 5)[0][:5])
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size,
         sampler=InfiniteRandomSampler(train_dataset, shuffle=True),  # noqa
         num_workers=4
     )
-    G = arch.OfficialGenerator(100, 32, 1)
-    D = arch.OfficialDiscriminator(1, 64)
-    trainer = GANTrainer(G, D, iter(train_loader), save_dir="mygan", max_epoch=1, num_batches=200,
+    G = arch.OfficialGenerator(100, 32, 3)
+    D = arch.OfficialDiscriminator(3, 64)
+    trainer = GANTrainer(G, D, iter(train_loader), save_dir="mygan_cifar", max_epoch=100, num_batches=100,
                          device="cuda", configuration=None)
     trainer.init()
     # trainer.load_state_dict_from_path("runs/tmp/last.pth")
